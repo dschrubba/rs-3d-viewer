@@ -1,0 +1,14 @@
+[package]
+name    = "rs-3d-viewer"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "rs-3d-viewer"
+path = "src/main.rs"
+
+[dependencies]
+raylib = "5.5"
+
+[build-dependencies]
+winres = "0.1"
