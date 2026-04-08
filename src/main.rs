@@ -1,3 +1,4 @@
+use raylib::ffi::MeasureTextEx;
 // =============================================================================
 // Simple drag-and-drop 3D model viewer using raylib-rs.
 //
@@ -33,6 +34,10 @@ mod rs3d;
 /// The whole 3D scene is drawn here, then upscaled to the actual window.
 const INTERNAL_W: u32 = 640;
 const INTERNAL_H: u32 = 480;
+
+// GUI safe area in pixels
+const GUI_SAFE_AREA_X: f32 = 16.0;
+const GUI_SAFE_AREA_Y: f32 = 16.0;
 
 /// Starting window size (window is resizable at runtime).
 const WINDOW_W: i32 = 1280;
@@ -72,7 +77,8 @@ const ICON_PNG_32:    &[u8]  = include_bytes!("../assets/icon/icon_32.png");
 // -----------------------------------------------------------------------------
 // Icon / Image Resources
 // -----------------------------------------------------------------------------
-const DEFAULT_FNT:    &[u8]  = include_bytes!("../assets/font/IBMPlexMono-Regular.ttf");
+const IBM_FNT:        &[u8]  = include_bytes!("../assets/font/IBMPlexMono-Regular.ttf");
+const DOS_FNT:        &[u8]  = include_bytes!("../assets/font/MorePerfectDOSVGA.ttf");
 
 // -----------------------------------------------------------------------------
 // GUI Defaults
@@ -182,7 +188,7 @@ fn main() {
         .build();
 
     // Default font
-    let default_font = &rl.load_font_from_memory(&thread, ".ttf", DEFAULT_FNT, 16, None)
+    let default_font = &rl.load_font_from_memory(&thread, ".ttf", DOS_FNT, 16, None)
         .expect("Failed to parse font data from memory");
 
     rl.gui_set_font(default_font);
@@ -326,6 +332,8 @@ fn main() {
             let win_w = rl.get_screen_width();
             let win_h = rl.get_screen_height();
             let dest  = compute_dest(win_w, win_h, INTEGER_SCALE);
+            let mut text: &str = "";
+            let mut text_measured: Vector2 = Vector2::new(0.0,0.0);
             let mut text_draw_position = Vector2::new(0.0,0.0);
 
             let mut d = rl.begin_drawing(&thread);
@@ -357,25 +365,37 @@ fn main() {
 
             // Help / filename overlay
             if model.is_none() {
-                let cy = win_h / 2;
-                text_draw_position = Vector2::new(20.0, cy.as_f32() - 18.0);
-                rs3d::text::draw_default_gui_text(&mut d, default_font, "No model loaded.", text_draw_position, COLOR_BONESTORM_100);
+
+                text = "No model loaded";
+                text_measured = default_font.measure_text(text, DEFAULT_GUI_FONT_SIZE.as_f32(), DEFAULT_GUI_FONT_SPACING.as_f32());
+                text_draw_position = Vector2::new(
+                    win_w.as_f32() - text_measured.x - GUI_SAFE_AREA_X,
+                    win_h.as_f32() - text_measured.y - GUI_SAFE_AREA_Y,
+                );
+                rs3d::text::draw_default_gui_text(&mut d, default_font, text, text_draw_position, COLOR_BONESTORM_100);
+
             } else if let Some(ref path) = model_path {
                 // Show the model filename at the bottom of the screen
-                text_draw_position = Vector2::new((win_w - 20).as_f32(), (win_h - 22).as_f32());
                 let name = std::path::Path::new(path)
                     .file_name()
                     .and_then(|n| n.to_str())
                     .unwrap_or(path.as_str());
+                text_measured = default_font.measure_text(name, DEFAULT_GUI_FONT_SIZE.as_f32(), DEFAULT_GUI_FONT_SPACING.as_f32());
+                text_draw_position = Vector2::new(
+                    win_w.as_f32() - text_measured.x - GUI_SAFE_AREA_X,
+                    win_h.as_f32() - text_measured.y - GUI_SAFE_AREA_Y,
+                );
                 rs3d::text::draw_default_gui_text(&mut d, default_font, name, text_draw_position, COLOR_BONESTORM_100);
             }
 
             // Controls reminder (top-right)
-            let help = "RMB drag: orbit | Wheel: zoom";
-            let tw = d.measure_text(help, DEFAULT_GUI_FONT_SIZE);
-            text_draw_position.x = (win_w - tw - 8).as_f32();
-            text_draw_position.y = 8.as_f32();
-            rs3d::text::draw_default_gui_text(&mut d, default_font, help, text_draw_position, COLOR_BONESTORM_100);
+            text = "RMB drag: orbit | Wheel: zoom";
+            text_measured = default_font.measure_text(text, DEFAULT_GUI_FONT_SIZE.as_f32(), DEFAULT_GUI_FONT_SPACING.as_f32());
+            text_draw_position = Vector2::new(
+                win_w.as_f32() - text_measured.x - GUI_SAFE_AREA_X,
+                text_measured.y - GUI_SAFE_AREA_Y,
+            );
+            rs3d::text::draw_default_gui_text(&mut d, default_font, text, text_draw_position, COLOR_BONESTORM_100);
 
         } // end_drawing
 
