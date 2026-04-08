@@ -1,18 +1,5 @@
 #version 330
 
-// ---------------------------------------------------------------------------
-// rs-3d-viewer  |  post.frag
-// Post-processing fragment shader applied when blitting the internal render
-// texture to the display window.
-//
-// Responsibilities
-// ----------------
-//  1. Custom upscaling: bilinear (mode 2) or bicubic / Catmull-Rom (mode 3).
-//     For Point (0) and Linear (1) the GPU's own sampler handles it --
-//     we just pass through.
-//  2. Vignette: subtle edge darkening for a "monitor" feel.
-// ---------------------------------------------------------------------------
-
 in vec2 fragTexCoord;           // UV [0..1] from the fullscreen quad
 in vec4 fragColor;              // Raylib tint color (WHITE in normal use)
 
@@ -23,8 +10,53 @@ uniform vec2      u_resolution; // Internal render resolution (e.g. 320x240)
 uniform float     u_time;       // Elapsed time in seconds
 uniform float     u_filterMode; // 0=point  1=linear  2=bilinear  3=cubic
 
-// Output
-out vec4 finalColor;
+// PS1 dither table from PSY-Q Docs:
+// https://psx.arthus.net/sdk/Psy-Q/DOCS/LIBREF46.PDF, PDF page 242
+const int psx_dither_table[16] = int[16](
+     0,  8,  2, 10,
+    12,  4, 14,  6,
+     3, 11,  1,  9,
+    15,  7, 13,  5
+);
+
+// Helper to get dither value from 1D array using 2D coordinates
+int get_dither(int x, int y) {
+    int xi = x & 3; // faster + safe modulo 4
+    int yi = y & 3;
+    return psx_dither_table[yi * 4 + xi];
+}
+
+// Adds PSX style dithering only
+vec3 PSXDitherOnly(vec3 col, vec2 uv, float ditherStr)
+{
+    ivec2 p = ivec2(uv * u_resolution);
+    int dither_i = get_dither(p.x, p.y);
+    col += (float(dither_i) / 2.0 - 4.0) * ditherStr;
+    return col;
+}
+
+// col -> your high-precision color input
+// p   -> screen position in pixel space
+vec3 PSXDither(vec3 col, vec2 uv){
+  //extrapolate 16bit color float to 16bit integer space
+  col*=255.0;
+
+  // Apply dithering according to PSY-Q Docs
+  // Convert to integer pixels first, then use modulo
+  ivec2 p = ivec2(uv * u_resolution);
+  int dither_i = get_dither(p.x, p.y);
+  col += (float(dither_i) / 2.0 - 4.0);
+
+  //truncate to 5bpc precision via bitwise AND operator, and limit value max to prevent wrapping.
+  //PS1 colors in default color mode have a maximum integer value of 248 (0xf8)
+  uvec3 icol = uvec3(clamp(col, 0.0, 255.0));
+  icol = icol & 0xF8u;
+  col = mix(vec3(icol), vec3(248.0), step(248.0, col));
+
+  //bring color back to floating point number space
+  col /= 255;
+  return col;
+}
 
 // ---------------------------------------------------------------------------
 // Manual bilinear sample.
@@ -88,7 +120,7 @@ vec4 sampleBicubic(sampler2D tex, vec2 uv)
         for (int i = 0; i < 4; i++)
         {
             row += xw[i] * texture(tex, p0 + vec2(float(i) * texel.x,
-                                                   float(j) * texel.y));
+                                   float(j) * texel.y));
         }
         result += yw[j] * row;
     }
@@ -108,30 +140,37 @@ float vignette(vec2 uv)
 }
 
 // ---------------------------------------------------------------------------
+// Main Shader
+// ---------------------------------------------------------------------------
+
+// Output
+out vec4 finalColor;
 void main()
 {
-    // ---- 1. Upscaling sample ----
     vec4 color;
 
-    if (u_filterMode > 2.5)          // mode 3 -- bicubic
+    // Upscaling
+    if (u_filterMode > 2.5)
     {
+        // mode 3      -> bicubic
         color = sampleBicubic(texture0, fragTexCoord);
     }
-    else if (u_filterMode > 1.5)     // mode 2 -- bilinear (software)
+    else if (u_filterMode > 1.5)
     {
+        // mode 2      -> bilinear (software)
         color = sampleBilinear(texture0, fragTexCoord);
     }
-    else                             // mode 0 or 1 -- handled by GPU sampler
+    else
     {
+        // mode 0 or 1 -> handled by GPU sampler
         color = texture(texture0, fragTexCoord);
     }
 
     // Post-processing effects
+    color.rgb = PSXDither(color.rgb, fragTexCoord);
 
     // Vignette
-    color.rgb *= vignette(fragTexCoord);
-
-    // (Placeholder for future effects: bloom, color grading, CRT scanlines...)
+    // color.rgb *= vignette(fragTexCoord);
 
     // Apply raylib tint and emit
     finalColor = color * colDiffuse * fragColor;
